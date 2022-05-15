@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -16,6 +17,8 @@ type Site struct {
 	DiscordSession *discordgo.Session
 	ChannelID      string
 	IsStopped      bool
+	proxyCount     int
+	Client         http.Client
 }
 
 // type Site struct {
@@ -28,6 +31,9 @@ func MonitorSite(url string, s *discordgo.Session, channelID string) *Site {
 	m.URL = url
 	m.DiscordSession = s
 	m.ChannelID = channelID
+	m.proxyCount = 0
+	m.Client = http.Client{Timeout: 10 * time.Second} // Request Time out
+
 	fmt.Println(m.URL)
 	go m.initMonitor()
 	return m
@@ -35,9 +41,33 @@ func MonitorSite(url string, s *discordgo.Session, channelID string) *Site {
 
 func (m *Site) initMonitor() {
 	var currentBody []byte = []byte("Test")
+	proxyList := GetProxies()
+
 	for !m.IsStopped {
 		fmt.Println("Checking Site ", m.URL, m.IsStopped)
-		body, err := checkSite(m.URL)
+
+		currentProxy := m.getProxy(proxyList)
+		splittedProxy := strings.Split(currentProxy, ":")
+		var prox1y string
+		if len(splittedProxy) == 4 {
+			prox1y = fmt.Sprintf("http://%s:%s@%s:%s", splittedProxy[2], splittedProxy[3], splittedProxy[0], splittedProxy[1])
+		}
+
+		if len(splittedProxy) == 2 {
+			prox1y = fmt.Sprintf("http://%s:%s", splittedProxy[0], splittedProxy[1])
+		}
+		proxyUrl, err := url.Parse(prox1y)
+		// fmt.Println(proxyUrl, prox1y)
+		if err != nil {
+			fmt.Println(err)
+			continue 
+		}
+		defaultTransport := &http.Transport{
+			Proxy: http.ProxyURL(proxyUrl),
+		}
+		m.Client.Transport = defaultTransport
+
+		body, err := m.checkSite(m.URL)
 		if err != nil {
 			fmt.Println(err.Error())
 			continue
@@ -56,12 +86,12 @@ func (m *Site) initMonitor() {
 			img := strings.Split(strings.Split(string(currentBody), `<meta property="og:image" content="`)[1], `"`)[0]
 			// image := &discordgo.MessageEmbedImage{URL: img}
 			embed := &discordgo.MessageEmbed{
-				URL:  m.URL,
-				Type: "link",
+				URL:         m.URL,
+				Type:        "link",
 				Description: "**Description :** \n" + desc,
 				// Image: image,
-				Title: title,
-				Author: &discordgo.MessageEmbedAuthor{Name: "Price Errors Site Change", IconURL: "https://cdn.discordapp.com/attachments/972640827396477048/974416841663475712/image1.png"},
+				Title:     title,
+				Author:    &discordgo.MessageEmbedAuthor{Name: "Price Errors Site Change", IconURL: "https://cdn.discordapp.com/attachments/972640827396477048/974416841663475712/image1.png"},
 				Thumbnail: &discordgo.MessageEmbedThumbnail{URL: img},
 			}
 			fmt.Println(desc, "\n\n\n", img, embed)
@@ -78,7 +108,7 @@ func (m *Site) initMonitor() {
 func (m *Site) Stop() {
 	m.IsStopped = true
 }
-func checkSite(url string) ([]byte, error) {
+func (m *Site) checkSite(url string) ([]byte, error) {
 
 	// Create request
 	req, err := http.NewRequest("GET", url, nil)
@@ -99,7 +129,7 @@ func checkSite(url string) ([]byte, error) {
 	// req.Header.Set("Connection", "close")
 	req.Close = true
 	// Fetch Request
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := m.Client.Do(req)
 	if err != nil {
 		fmt.Println(err.Error())
 		return []byte(""), err
@@ -117,4 +147,14 @@ func checkSite(url string) ([]byte, error) {
 	// fmt.Println("response Status : ", resp.Status)
 	// fmt.Println("response Headers : ", resp.Header)
 	// fmt.Println("response Body : ", string(respBody))
+}
+
+func (m *Site) getProxy(proxyList []string) string {
+	if m.proxyCount + 1 >= len(proxyList) {
+		m.proxyCount = 0
+	}
+	// fmt.Println(m.proxyCount, proxyList[m.proxyCount])
+	currentProxy := proxyList[m.proxyCount]
+	m.proxyCount++
+	return currentProxy
 }

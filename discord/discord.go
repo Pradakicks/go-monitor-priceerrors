@@ -52,7 +52,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == s.State.User.ID {
 		return
 	}
-	fmt.Println(m.Content)
+	fmt.Printf("%s: %s\n", m.Author, m.Content)
 	// If the message is "ping" reply with "Pong!"
 	if strings.Contains(m.Content, "$siteadd") {
 		splitMessage := strings.Split(m.Content, " ")
